@@ -4,25 +4,39 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import math
-from scipy.ndimage.filters import gaussian_filter1d
 from mpmath import *
 
 # Selfish minning on a sequential-mining multi-stage Proof-of-Work blockchain
 class Selfish_StageWithholding:
 
     def __init__(self, **kwargs):
-        # Set Parameters
-
-        '''Selfish pool's network hashing power share = prob. the selfish pool finds a stage
-        earlier than the honest pool'''
-        self.__alpha = kwargs['alpha']
+        # Set Parameters         
         self.__k = kwargs['k']
         self.__transitions_no = kwargs['transitions_no']
-        self.__withholding = kwargs['withholding'] # withholding percent
+        
+        
+        #Selfish Stage Withholder's network hashing power share
+        self.__alpha = kwargs['alpha']
+        # withholding percent
+        self.__tau = kwargs['withholding']        
+        #Selfish pool's network hashing power share
+        self.__sel_pool_n_h_p_share = self.__alpha * (1-self.__tau) 
+        #Withholder's network hashing power share
+        self.__with_n_h_p_share = self.__alpha *  self.__tau
+        #Honest miners' network hashing power share
+        self.__hon_miners_n_h_p_share = 1 - self.__alpha
+        
+        #self.__p1 = Probability that the selfish pool finds a #stage earlier than the honest miners = ratio between 
+        #the selfish pool's network hashing power share and the
+        #sum of the selfish pool's network hashing power share + 
+        #the honest miners' network hashing power share.
+        # With probability 1-self.__p1 the opposite happens.
+        self.__p1 =  self.__sel_pool_n_h_p_share / (self.__sel_pool_n_h_p_share + self.__hon_miners_n_h_p_share)
+        
 
         # For results
         self.__unpublished_blocks_no = 0
-        self.__honest_reward = 0  # Number of blocks in the longest chain mined by the honest pool
+        self.__honest_reward = 0  # Number of blocks in the longest chain mined by the honest miners
         self.__selfish_reward = 0 # Number of blocks in the longest chain mined by the selfish pool
         self.__selfish_stagewithholder_reward = 0  # share of Stage-Withholder from the honest reward
         self.__selfish_stagewithholder_relative_reward = 0
@@ -35,7 +49,7 @@ class Selfish_StageWithholding:
         self.__current_state = 0
         self.__previous_state = 0
         self.__stage_sel = 0  # Expected number of stages solved by the selfish pool when it looses a mining race
-        self.__stage_hon = 0  # Expected number of stages solved by the honest pool when it looses a mining race
+        self.__stage_hon = 0  # Expected number of stages solved by the honest miners when it looses a mining race
 
     def probabilistic_round(self, x):
         return int(x + random.uniform(0, 1))
@@ -68,9 +82,9 @@ class Selfish_StageWithholding:
         return self.expected
 
     # For computing M_a, M_b, and M_c
-    def __expression12(self, p1):  # Expression (12)
+    def __expression19(self, p1):  # Expression (19)
         '''The machine has just moved forward to a currentState >=1.
-        The selfish and the honest pool have to complete k and R stages to trigger
+        The selfish and the honest miners have to complete k and R stages to trigger
         the next state transition, respectively.
         '''
         Ma = 0  # M_a
@@ -80,12 +94,12 @@ class Selfish_StageWithholding:
 
         return Ma
 
-    def __expression13(self, p1):  # Expression (13)
+    def __expression20(self, p1):  # Expression (20)
         '''The machine has just moved back to a currentState >=1.
-        The selfish and the honest pool have to complete R and R stages to trigger
+        The selfish and the honest miners have to complete R and R stages to trigger
         the next state transition, respectively.
 
-        If currentStage = 1 (resp. currentStage > 2), then the honest pool has to
+        If currentStage = 1 (resp. currentStage > 2), then the honest miners has to
         complete k-1 (resp. k) stages to trigger the next state transition.
         '''
 
@@ -102,9 +116,9 @@ class Selfish_StageWithholding:
 
         return Ma
 
-    def __expressions10and11(self, p1):  # Expressions (10) and (11)
+    def __expressions17and18(self, p1):  # Expressions (17) and (18)
         '''The machine has either just started, looped or returned to state 0 from state $1$.
-        The selfish and the honest pool have to complete R and k stages to
+        The selfish and the honest miners have to complete R and k stages to
         trigger the next state transition, respectively.
         '''
         Ma = 0  # M_a
@@ -112,14 +126,14 @@ class Selfish_StageWithholding:
         Mc = 0  # M_c
 
         ''' Compute Ma as the probability that the selfish pool finds R stages and, 
-        in the meantime, the honest pool finds k-2 stages at most.
+        in the meantime, the honest miners finds k-2 stages at most.
         '''
         for n in range(self.__k - 1):
             Ma = Ma + (p1 ** self.__R) * ((1 - p1) ** (n)) * self.binom(
                 n + self.__R - 1, self.__R - 1)
 
         ''' Compute Mb as the probability that the selfish pool finds R stages and, 
-        in the meantime, the honest pool finds k-1 stages.
+        in the meantime, the honest miners finds k-1 stages.
         '''
         Mb = (p1 ** self.__R) * ((1 - p1) ** (self.__k - 1)) * self.binom(
             self.__k + self.__R - 2, self.__R - 1)
@@ -129,7 +143,7 @@ class Selfish_StageWithholding:
         # Compute the selfish pool's expected relative reward when it does not attack and mines honestly.
 
     def __probability(self):
-        p1 = (1-self.__withholding) * self.__alpha   # probability that the selfish pool finds a stage earlier than the honest pool
+        p1 = self.__alpha   # probability that the selfish pool finds a stage earlier than the honest miners by mining honestly
 
         # Selfish pool's expected relative reward = Selfish pool's mining probability
         selfishPoolMiningProb = 0
@@ -145,26 +159,26 @@ class Selfish_StageWithholding:
 
             if self.__current_state == 0:
                 '''The machine has either just started, looped or returned to state 0 from state $1$. 
-                The selfish and the honest pool have to complete R and k stages to 
+                The selfish and the honest miners have to complete R and k stages to 
                 trigger the next state transition, respectively.
                 '''
 
-                # Probability that the honest pool is faster than the selfish pool and mines the block
-                Ma, Mb = self.__expressions10and11(self.__alpha)
+                # Probability that the honest miners is faster than the selfish pool and mines the block
+                Ma, Mb = self.__expressions17and18(self.__p1)
 
-                # Probability that the honest pool is faster than the selfish pool and mines the block
+                # Probability that the honest miners is faster than the selfish pool and mines the block
                 Mc = 1 - Ma - Mb
 
                 ''' 
                 If 0 <= s < Ma, then, with probability Ma, the selfish pool 
-                has found R stages and has completed the PoW, while the honest pool has found at most
+                has found R stages and has completed the PoW, while the honest miners has found at most
                 k-2 stages in the meantime.
 
                 else if Ma <= s < Ma + Mb, then, with probability Mb, the selfish pool 
-                has found R stages and has completed the PoW, while the honest pool has found k-1 stages
+                has found R stages and has completed the PoW, while the honest miners has found k-1 stages
                 in the meantime.
 
-                else, with probability Mc = 1-Ma-Mb, the honest pool 
+                else, with probability Mc = 1-Ma-Mb, the honest miners 
                 has found k stages and has completed the PoW earlier than the selfish pool finds R stages.
                 '''
 
@@ -172,10 +186,10 @@ class Selfish_StageWithholding:
 
                     self.__unpublished_blocks_no += 1  # The mined block is kept private
 
-                    # In the meantime, the honest pool has found k-2 stages at most
-                    self.__stage_hon = self.__expectedstages(self.__alpha, self.__R, self.__k - 2)
+                    # In the meantime, the honest miners has found k-2 stages at most
+                    self.__stage_hon = self.__expectedstages(self.__p1, self.__R, self.__k - 2)
 
-                    '''The loser honest pool has to find k-self.__stage_hon- 1 more stages to 
+                    '''The loser honest miners has to find k-self.__stage_hon- 1 more stages to 
                     complete the second-last hash-puzzle in its current PoW and trigger a state
                     transition
                     '''
@@ -204,47 +218,47 @@ class Selfish_StageWithholding:
 
 
             elif self.__current_state - self.__previous_state == 1:  # The machine has just moved forward to currentState (such that currentState>=1).
-                # The selfish and the honest pool have to complete k and R stages to trigger the next state transition, respectively
+                # The selfish and the honest miners have to complete k and R stages to trigger the next state transition, respectively
 
-                Ma = self.__expression12(
-                    self.__alpha)  # M_a = probability the selfish pool is faster than the honest pool
+                Ma = self.__expression19(
+                    self.__p1)  # M_a = probability the selfish pool is faster than the honest miners
 
                 ''' 
                 If 0 <= s < Ma, then, with probability Ma, the selfish pool 
-                has found k stages and has completed a PoW, while the honest pool has found at most R-1 stages 
+                has found k stages and has completed a PoW, while the honest miners has found at most R-1 stages 
                 in the meantime.
 
 
-                else, with probability Mb = 1-Ma the honest pool has found R stages and has completed a PoW, 
-                while the honest pool has found at most k-1 stages in the meantime.
+                else, with probability Mb = 1-Ma the honest miners has found R stages and has completed a PoW, 
+                while the honest miners has found at most k-1 stages in the meantime.
                 '''
 
-                if s < Ma:  # The selfish pool has been faster than the honest pool.
+                if s < Ma:  # The selfish pool has been faster than the honest miners.
 
                     # The state machine will transition to state currentState+ 1.
                     self.__unpublished_blocks_no += 1  # The mined block is kept private
 
-                    # In the meantime, the honest pool has found R-1 stages at most
-                    self.__stage_hon = self.__expectedstages(self.__alpha, self.__k, self.__R - 1)
+                    # In the meantime, the honest miners has found R-1 stages at most
+                    self.__stage_hon = self.__expectedstages(self.__p1, self.__k, self.__R - 1)
 
-                    if self.__current_state == 1:  # The honest pool needs to find R−stage_hon+ 1 more stages to
+                    if self.__current_state == 1:  # The honest miners needs to find R−stage_hon+ 1 more stages to
                         # complete its current Pow and trigger a state transition
                         self.__R = self.__R - self.__stage_hon + 1
 
                     else:  # current_state>=2
-                        self.__R = self.__R - self.__stage_hon  # The honest pool needs to find R−stage_hon more stages
+                        self.__R = self.__R - self.__stage_hon  # The honest miners needs to find R−stage_hon more stages
                         # to complete its current Pow and trigger a state transition
 
                     self.__previous_state = self.__current_state
                     self.__current_state += 1
 
-                else:  # honest pool has been faster than the selfish pool. The state machine will move back to currentState−1
+                else:  # honest miners has been faster than the selfish pool. The state machine will move back to currentState−1
 
                     self.__selfish_reward += 1  # The selfish pool releases the first unpublished block
 
                     self.__unpublished_blocks_no -= 1
 
-                    self.__stage_sel = self.__expectedstages(1 - self.__alpha, self.__R,
+                    self.__stage_sel = self.__expectedstages(1 - self.__p1, self.__R,
                                                              self.__k - 1)  # The selfish pool has completed at
                     # most k−1 stages in the meantime
 
@@ -258,42 +272,42 @@ class Selfish_StageWithholding:
 
                 # The machine has just moved back to currentState (such that currentState>=1). The selfish pool has to complete
                 # R stages to trigger a state transition.
-                # If currentState=1 (resp.currentState>2), then the honest pool has to complete k−1 (resp. k) stages
+                # If currentState=1 (resp.currentState>2), then the honest miners has to complete k−1 (resp. k) stages
                 # to trigger the next state transition
 
-                Ma = self.__expression13(
-                    self.__alpha)  # M_a = probability the selfish pool is faster than the honest pool
+                Ma = self.__expression20(
+                    self.__p1)  # M_a = probability the selfish pool is faster than the honest miners
 
                 honest_stages_to_comp = self.__k - 1 if self.__current_state == 1 else self.__k  # honest_stages_to_comp is only used for logging
 
                 ''' 
                 If 0 <= s < Ma, then, with probability Ma, the selfish pool 
                 has found R stages and has completed a PoW. In the meantime, if currentState=1 (resp.currentState>2), 
-                the honest pool has completed at most k−2 (resp. k-1) stages.
+                the honest miners has completed at most k−2 (resp. k-1) stages.
 
 
                 else, with probability Mb = 1-Ma the opposite happened.
                 '''
 
-                if s < Ma:  # with probability Ma the selfish pool has been faster than the honest pool
+                if s < Ma:  # with probability Ma the selfish pool has been faster than the honest miners
                     # The machine will move forward to state currentState+1
 
                     self.__unpublished_blocks_no += 1  # The block is kept private
                     if self.__current_state == 1:
-                        # the honest pool has completed at most k−2 stages in the meantime
-                        self.__stage_hon = self.__expectedstages(self.__alpha, self.__R, self.__k - 2)
+                        # the honest miners has completed at most k−2 stages in the meantime
+                        self.__stage_hon = self.__expectedstages(self.__p1, self.__R, self.__k - 2)
 
                     else:  # current_state>=2
-                        # honest pool has completed at most k−1 stages in the meantime
-                        self.__stage_hon = self.__expectedstages(self.__alpha, self.__R, self.__k - 1)
+                        # honest miners has completed at most k−1 stages in the meantime
+                        self.__stage_hon = self.__expectedstages(self.__p1, self.__R, self.__k - 1)
 
-                    self.__R = self.__k - self.__stage_hon  # honest pool needs to find k−stage_hon more stages
+                    self.__R = self.__k - self.__stage_hon  # honest miners needs to find k−stage_hon more stages
                     # to complete its current PoW and trigger a state transition
 
                     self.__previous_state = self.__current_state
                     self.__current_state += 1
 
-                else:  # the honest pool has been faster than the selfish pool.
+                else:  # the honest miners has been faster than the selfish pool.
                     # The machine will move back to currentState−1
 
                     self.__selfish_reward += 1  # The selfish pool releases the first unpublished block
@@ -302,10 +316,10 @@ class Selfish_StageWithholding:
 
                     if self.__current_state == 1:
                         # the selfish pool has completed at most R−1 stages in the meantime
-                        self.__stage_sel = self.__expectedstages(1 - self.__alpha, self.__k - 1, self.__R - 1)
+                        self.__stage_sel = self.__expectedstages(1 - self.__p1, self.__k - 1, self.__R - 1)
                     else:  # current_state>=2
                         # The selfish pool has completedat most R−1 stages in the meantime
-                        self.__stage_sel = self.__expectedstages(1 - self.__alpha, self.__k, self.__R - 1)
+                        self.__stage_sel = self.__expectedstages(1 - self.__p1, self.__k, self.__R - 1)
 
                     self.__R = self.__k - self.__stage_sel  # the selfish pool needs to find k−stage_sel nmore stages
                     # to complete its current PoW and trigger a state transition
@@ -320,15 +334,26 @@ class Selfish_StageWithholding:
 
         # Publishing the unpublishedBlockNo blocks
         self.__selfish_reward += self.__unpublished_blocks_no
-        # Relative reward
-        self.__selfish_stagewithholder_reward += self.__selfish_reward
-        self.__selfish_stagewithholder_reward += (self.__withholding*self.__alpha/(self.__withholding*self.__alpha+(1-self.__alpha)))*self.__honest_reward
+        #print("END: self.__selfish_reward " + str(self.__selfish_reward) )
+        #print("END: self.__honest_reward " + str(self.__honest_reward) )
+        #print("END: self.__alpha " + str(self.__alpha) )
+        #print("END: self.__tau " + str(self.__tau) )
+        # Stage Withholder reward
+        self.__stagewithholder_reward = (self.__tau*self.__alpha)/(self.__tau*self.__alpha+(1-self.__alpha))*self.__honest_reward
+        #print("END: self.__stagewithholder_reward " + str(self.__stagewithholder_reward) )
+        # Selfish stage withholder reward
+        self.__selfish_stagewithholder_reward = self.__selfish_reward + self.__stagewithholder_reward
+        #print("END: self.__selfish_stagewithholder_reward " + str(self.__selfish_stagewithholder_reward) )
+        # The actual reward obtained by the honest miners
+        self.__honest_reward = self.__honest_reward - self.__stagewithholder_reward
+        #print("END: Real self.__honest_reward " + str(self.__honest_reward) )
+        #Selfish stage withholder relative reward
         self.__selfish_stagewithholder_relative_reward = self.__selfish_stagewithholder_reward /\
-                                                         (self.__selfish_reward + self.__honest_reward)
+                                                         (self.__selfish_stagewithholder_reward +  self.__honest_reward)
+        #print("END: self.__selfish_stagewithholder_relative_reward " + str(self.__selfish_stagewithholder_relative_reward) )
         return (self.__selfish_stagewithholder_relative_reward, self.__probability()) #self.probability is the same as
         # the reward for honestly mining by the Selfish Stage-Withholder
-
-
+        
 ###########################################################
 def divide_chunks(l, n):
     # looping till length l
