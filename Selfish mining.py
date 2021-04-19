@@ -4,12 +4,11 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import math
-from scipy.ndimage.filters import gaussian_filter1d
 from mpmath import *
 
 
 # Selfish minning on a sequential-mining multi-stage Proof-of-Work blockchain
-class Selfish_Mining:
+class Selfish_BlockMining:
 
     def __init__(self, **kwargs):
         # Set Parameters
@@ -31,14 +30,22 @@ class Selfish_Mining:
 
         # For monitoring the state machine
         self.__transition_counter = 0  # counts the number of simulations
-        self.__current_state = 0 # current state of machine
-        self.__previous_state = 0 # previous state of machine
+        self.__current_state = 0
+        self.__previous_state = 0
         self.__stage_sel = 0  # Expected number of stages solved by the selfish pool when it looses a mining race
         self.__stage_hon = 0  # Expected number of stages solved by the honest pool when it looses a mining race
 
-    def probabilistic_round(self, x):
-        return int(x + random.uniform(0,1))
+        self.__roundToCeil = False
+        s = np.random.uniform(0, 1)
+        if (
+                s < 1 / 2):  # is 0 <= s < 1/2 then self.__roundToCeil = True. Else if 1/2 <= s < 1 self.__roundToCeil = False.
+            self.__roundToCeil = True
 
+    def write_file(self):
+        stats_result = [self.__alpha, self.__transitions_no, \
+                        self.__honest_reward, \
+                        self.__selfish_reward, \
+                        self.__selfish_relative_reward]  # ,self.__reward, self.__orphanBlocks, self.__totalMinedBlocks                       ]
 
     def binom(self, n, k):
         return math.factorial(n) / (math.factorial(k) * math.factorial(n - k))
@@ -61,13 +68,12 @@ class Selfish_Mining:
         for n in range(max_failures + 1):
             denominator = denominator + ((p_success ** successes_no) * ((1 - p_success) ** (n)) * self.binom(
                 n + successes_no - 1, successes_no - 1))
-        x=numerator / denominator
-        self.expected = int(self.probabilistic_round(x))
-            #self.__roundExpectedToInt(numerator / denominator))  # round to the nearest integer and then truncate the decimal part (which is .000..)
+        self.expected = int(self.__roundExpectedToInt(
+            numerator / denominator))  # round to the nearest integer and then truncate the decimal part (which is .000..)
         return self.expected
 
     # For computing M_a, M_b, and M_c
-    def __expression12(self, p1):  # Expression (12)
+    def __expression19(self, p1):  # Expression (19)
         '''The machine has just moved forward to a currentState >=1.
         The selfish and the honest pool have to complete k and R stages to trigger
         the next state transition, respectively.
@@ -79,7 +85,7 @@ class Selfish_Mining:
 
         return Ma
 
-    def __expression13(self, p1):  # Expression (13)
+    def __expression20(self, p1):  # Expression (20)
         '''The machine has just moved back to a currentState >=1.
         The selfish and the honest pool have to complete R and R stages to trigger
         the next state transition, respectively.
@@ -101,7 +107,7 @@ class Selfish_Mining:
 
         return Ma
 
-    def __expressions10and11(self, p1):  # Expressions (10) and (11)
+    def __expressions17and18(self, p1):  # Expressions (17) and (18)
         '''The machine has either just started, looped or returned to state 0 from state $1$.
         The selfish and the honest pool have to complete R and k stages to
         trigger the next state transition, respectively.
@@ -137,6 +143,20 @@ class Selfish_Mining:
                 n + self.__k - 1, self.__k - 1)
         return selfishPoolMiningProb
 
+    def __roundExpectedToInt(self, x):
+        if (math.modf(x)[0] == 1 / 2):  # decimal part is 1/2.
+            '''To maximize fairness, one time we use ceil. 
+            The next time we use floor, and so on'''
+
+            if (self.__roundToCeil == True):
+                self.__roundToCeil = False
+                return math.ceil(x)
+            else:
+                self.__roundToCeil = True
+                return math.floor(x)
+
+        else:
+            return round(x)
 
     # For Simulation of Selfish mining for transitions_no
     def Simulate(self):
@@ -150,7 +170,7 @@ class Selfish_Mining:
                 '''
 
                 # Probability that the honest pool is faster than the selfish pool and mines the block
-                Ma, Mb = self.__expressions10and11(self.__alpha)
+                Ma, Mb = self.__expressions17and18(self.__alpha)
 
                 # Probability that the honest pool is faster than the selfish pool and mines the block
                 Mc = 1 - Ma - Mb
@@ -207,7 +227,7 @@ class Selfish_Mining:
             elif self.__current_state - self.__previous_state == 1:  # The machine has just moved forward to currentState (such that currentState>=1).
                 # The selfish and the honest pool have to complete k and R stages to trigger the next state transition, respectively
 
-                Ma = self.__expression12(
+                Ma = self.__expression19(
                     self.__alpha)  # M_a = probability the selfish pool is faster than the honest pool
 
                 ''' 
@@ -262,7 +282,7 @@ class Selfish_Mining:
                 # If currentState=1 (resp.currentState>2), then the honest pool has to complete k−1 (resp. k) stages
                 # to trigger the next state transition
 
-                Ma = self.__expression13(
+                Ma = self.__expression20(
                     self.__alpha)  # M_a = probability the selfish pool is faster than the honest pool
 
                 honest_stages_to_comp = self.__k - 1 if self.__current_state == 1 else self.__k  # honest_stages_to_comp is only used for logging
@@ -321,11 +341,10 @@ class Selfish_Mining:
 
         # Publishing the unpublishedBlockNo blocks
         self.__selfish_reward += self.__unpublished_blocks_no
-        # Relative reward
-        self.__selfish_relative_reward = self.__selfish_reward / (self.__selfish_reward + self.__honest_reward)
-        return (self.__selfish_relative_reward, self.__probability()) #self.probability is the same as
-        # the reward for honestly mining by the Selfish miner
 
+        self.__selfish_relative_reward = self.__selfish_reward / (self.__selfish_reward + self.__honest_reward)
+
+        return (self.__selfish_relative_reward, self.__probability())
 
 ###########################################################
 def divide_chunks(l, n):
